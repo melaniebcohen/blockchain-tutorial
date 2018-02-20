@@ -32,12 +32,56 @@ var getGenesisBlock = () => {
 }
 
 var blockchain = [getGenesisBlock()]
-console.log(blockchain)
+console.log('Initial blockchain',blockchain)
 
-// block needs to be hashed to keep integrity of data
-var calculateHash = (index, previousHash, timestamp, data) => {
-  return CryptoJS.SHA256(index + previousHash + timestamp + data).toString();
+var initHttpServer = () => {
+  var app = express();
+  app.use(bodyParser.json());
+
+  // user receives list of all blocks
+  app.get('/blocks', (req, res) => {
+    res.send(JSON.stringify(blockchain));
+  });
+  // user creates a new block with content from user
+  app.post('/mineBlock', (req, res) => {
+    var newBlock = generateNextBlock(req.body.data);
+    addBlock(newBlock);
+    broadcast(responseLatestMsg());
+    console.log(`Block added: ${JSON.stringify(newBlock)}`);
+    res.send();
+  });
+  // user receives list of peers
+  app.get('/peers', (req, res) => {
+    res.send(sockets.map( s => {
+      `${s._socket.remoteAddress}: ${s._socket.remotePort}`
+    }))
+  })
+  // user add peers
+  app.post('/addPeer', (req, res) => {
+    connectToPeers([req.body.peer]);
+    res.send();
+  });
+  app.listen(http_port, () => {
+    console.log(`Listening on port: ${http_port}`)
+  });
 }
+
+var initP2PServer = () => {
+  var server = new WebSocket.Server({port: p2p_port});
+  server.on('connection', ws => initConnection(ws));
+  console.log(`Listening websocket p2p port on: ${p2p_port}`)
+}
+
+var initConnection = ws => {
+  sockets.push(ws);
+  initMessageHandler(ws);
+  initErrorHandler(ws);
+  write(ws, queryChainLengthMsg());
+}
+
+// initMessageHandler
+
+// initErrorHandler
 
 // to generate new block, we must know hash of previous block and create rest of required content
 var generateNextBlock = blockData => {
@@ -47,6 +91,15 @@ var generateNextBlock = blockData => {
   var nextHash = calculateHash(nextIndex, previousBlock.hash, nextTimestamp, blockData);
   return new Block(nextIndex, previousBlock.hash, nextTimestamp, blockData, nextHash);
 }
+
+// calculateHashForBlock
+
+// block needs to be hashed to keep integrity of data
+var calculateHash = (index, previousHash, timestamp, data) => {
+  return CryptoJS.SHA256(index + previousHash + timestamp + data).toString();
+}
+
+// addBlock
 
 // validate if block or chain of blocks are valid
 var isValidNewBlock = (newBlock, previousBlock) => {
@@ -61,6 +114,10 @@ var isValidNewBlock = (newBlock, previousBlock) => {
   return true;
 }
 
+// connectToPeers
+
+// handleBlockchainResponse
+
 // replace chain if blockchain is valid
 var replaceChain = newBlocks => {
   if (isValidChain(newBlocks) && newBlocks.length > blockchain.length) {
@@ -71,3 +128,10 @@ var replaceChain = newBlocks => {
     console.log('Received blockchain invalid.');
   }
 }
+
+// isValidChain
+// etc.
+
+connectToPeers(initalPeers);
+initHttpServer();
+initP2PServer();
